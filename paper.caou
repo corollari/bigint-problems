@@ -1,0 +1,63 @@
+% My awesome paper
+% Your name
+% Year
+
+## Abstract
+Caoutchouc is a typesetting language, like LaTeX, used to format documents.
+Caoutchouc is also the name that the indigenous people of South America used for the rubber material that is obtained from vulcanizing latex (the tree sap).
+
+\newpage
+
+\setcounter{tocdepth}{4}
+\tableofcontents
+
+\newpage
+
+# A brief introduction to Caoutchouc
+## Math
+Math can be typed the way you'd in a calculator €1+2*sqrt(2)-pi+alpha/(3.2-1)€
+
+## Lists
+### Unordered
+- Lists
+    - can
+    - be
+    - formatted
+        - like
+- this
+
+### Ordered
+1. Or ordered,
+2. like 
+3. this
+
+## Code
+~~~~~~~
+// This is a code block
+if(code-block){
+  writeSomeCode();
+}
+~~~~~~~
+
+## Formatting
+Text can be **emphasised**, *in italics*, ~~crossed~~, `verbatim` or include super^scripts^ and under~scripts~.
+
+## Links
+[Links are simple too](https://caoutchouc.io) 
+
+## LaTeX-native!
+\usepackage{xcolor}
+\begin{itemize}
+    \item And if you want to do something else,
+    \item you can always use LaTeX directly
+    \item anywhere
+    \item
+        $$
+        f_j'(a):=
+        \begin{cases}
+        f_j(a) &\text{ if } f_j(a)\leq K \text{ and}\\
+        K &\text{ if } K<f_j(a)\\
+        \end{cases}
+        $$
+\end{itemize}
+\colorbox{red}{Colored text!}

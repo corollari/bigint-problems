@@ -1,0 +1,7 @@
+*.aux
+*.cautex
+*.log
+*.dvi
+*.out
+*.toc
+*.pdf

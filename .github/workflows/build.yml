@@ -21,14 +21,14 @@ jobs:
       run: npm install -g caou
     - name: Build document
       run: |
-        caou paper.caou
-        caou paper.caou
+        caou README.md
+        caou README.md
         mkdir -p built-doc
-        mv paper.pdf built-doc
+        mv README.pdf built-doc
     - name: Upload built doc
       uses: actions/upload-artifact@v1.0.0
       with:
-        name: paper.pdf
+        name: README.pdf
         path: built-doc
     - name: Deploy to GitHub Pages
       continue-on-error: true

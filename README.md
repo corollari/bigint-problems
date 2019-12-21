@@ -353,7 +353,7 @@ void bn_multiply(const bignum256 *k, bignum256 *x, const bignum256 *prime) {
 Given that this algorithm uses classical long multiplication, which has a complexity of €O(n^2)€ where €n€ is the number of chunks a number is split into to do the multiplications. Given that the code provided splits 256-bit numbers into 9 chunks of 30-bits, so `bn_multiply_long` goes through 81 iterations in its loops. I personally don't understand why they use 30-bit numbers and have a weird normalization system, so following Chesterton's fence^[https://en.wikipedia.org/wiki/Wikipedia:Chesterton%27s\_fence] I should not remove that, but if we could remove that we could use chunks of 86 bits and reduce the total number of operations to €3^2=9€ and then apply the modulus, storing the intermediate result in 3 different 256-bit words.
 
 ### Modulus
-We haven't come up with an optimized modulus algorithm.
+When SHA512 is computed as part of the signature verification process, a 512-bit value stored in an array of 8 unsigned longs is obtained, which we need to apply a modulus operation to. While it's possible to iterate over the binary representation and compute the modulus in 512 steps it would be great if we found a cheaper algorithm. 
 
 ## Resources
 A list of resources that are quite interesting but we still haven't explored in depth:

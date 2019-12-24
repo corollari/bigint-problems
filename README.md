@@ -20,6 +20,7 @@ NeoVM, the environment where the algorithm will be run is special due to the con
 - The VM is turing complete, so it's possible to use loops and conditionals.
 - If any mathematical operation results in an underflow or overflow the whole execution is stopped and the VM faults, therefore through the whole execution of the algorithm we must make sure that it never happens, not even in intermediate results (eg: if you try to calculate `(a*b)%p` with large numbers it will fault because the intermediate result `a*b` will overflow). It's also impossible to check for overflows/underflows after they have ocurred as by then the VM will have already faulted and it does not support exception handling.
 - Operations have the following costs, all prices are in GAS, which is roughly equivalent to USD.
+
 | Operation | Cost |
 |-----------|------|
 | Store 1KB on permanent storage | 1 |

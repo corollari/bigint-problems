@@ -27,7 +27,7 @@ NeoVM, the environment where the algorithm will be run is special due to the con
 | Read permanent storage | 0.1 |
 | All other operations | 0.001 |
 
-This difference in costs means that if we take a set of opcodes that can be executed in 1 second in a 3GHz Intel Core i7 6950X processor (released in 2016) and instead execute them inside the NeoVM the cost of that execution^[IPS/clock cycle taken from https://en.wikipedia.org/wiki/Instructions\_per\_second#Timeline\_of\_instructions\_per\_second] will be €3*10^9*106*0.001=318,000,000€ GAS and around the same amount in USD. It is therefore clear that the cost of running code inside the NeoVM is massively expensive and we will require extensive optimization.
+This difference in costs means that if we take a set of opcodes that can be executed in 1 second in a 3GHz Intel Core i7 6950X processor (released in 2016) and instead execute them inside the NeoVM the cost of that execution^[IPS/clock cycle taken from https://en.wikipedia.org/wiki/Instructions\_per\_second#Timeline\_of\_instructions\_per\_second] will be €3*10^9*106*0.001=318,000,000€ GAS and around the same amount in USD. It is therefore clear that the cost of running code inside the NeoVM is massively expensive and will require extensive optimization.
 
 ## Algorithm
 Python implementation of the verification algorithm^[Source: https://tools.ietf.org/html/rfc8032#section-6]:
@@ -228,7 +228,7 @@ def modsum(a,b,p):
 And then built the multiplication^[Source: https://www.geeksforgeeks.org/how-to-avoid-overflow-in-modular-multiplication/] by iterating over the bits of one of the numbers and applying sums:
 ```python
 # Assume 0 < a, b < mod
-def mulmod(a, b, mod): 
+def mulmod256(a, b, mod): 
     res = 0;
     while (b > 0): 
         # If b is odd, add 'a' to result 
@@ -246,115 +246,51 @@ def mulmod(a, b, mod):
 Nevertheless this procedure is really expensive as the loop will probably repeat close to 255 times, and performing the modsums of each iteration is quite expensive aswell.
 Overall, implementing `point_add` using these algorithms results in an execution cost of 213 GAS, bringing the total cost of the two `point_mul` to around 100,000 GAS.
 
-A different approach can be taken by using several 256-bit words to hold the intermediate results, then perform classical long multiplication^[https://en.wikipedia.org/wiki/Multiplication\_algorithm#Long\_multiplication] and modulus. The following code performs an optimized version of that^[Source: https://github.com/trezor/trezor-crypto/blob/master/bignum.c]:
-```C
-// auxiliary function for multiplication.
-// compute k * x as a 540 bit number in base 2^30 (normalized).
-// assumes that k and x are normalized.
-void bn_multiply_long(const bignum256 *k, const bignum256 *x,
-                      uint32_t res[18]) {
-  int i, j;
-  uint64_t temp = 0;
-
-  // compute lower half of long multiplication
-  for (i = 0; i < 9; i++) {
-    for (j = 0; j <= i; j++) {
-      // no overflow, since 9*2^60 < 2^64
-      temp += k->val[j] * (uint64_t)x->val[i - j];
+Using the fact that `2**255%p=19` and that 19 only consists of 5 bits we can further optimize the algorithm by computing the sum with classical long multiplication^[https://en.wikipedia.org/wiki/Multiplication\_algorithm#Long\_multiplication], storing the result in 2 BigIntegers and then compute the modulus using the following equality `(highBits*2**255+lowBits)%p=(highBits*2**255)%p+lowBits%p=(highBits*19)%p+lowBits%p` which then gets translated into `modsum(mulmod256(highBits, 19, p), lowBits, p)` and, while mulmod256() can get really expensive this specific instance is really cheap due to 19 being a low number, which causes the loop to run only 5 times (instead of the ~255 iterations on random numbers). The algorithm has some other minor quirks to prevent overflows, but the basic idea is the one presented:
+```
+private static BigInteger mulmod(BigInteger a, BigInteger b, BigInteger p){
+    BigInteger power127 = 2^127;
+    BigInteger power128 = power127 * 2;
+    BigInteger lowA = a%power128;
+    BigInteger lowB = b%power127;
+    BigInteger highA = a/power128;
+    BigInteger highB = b/power127;
+    BigInteger low = (lowA*lowB)%p;
+    BigInteger high = (highA*highB)%p;
+    BigInteger medium1 = ((lowA/2)*highB)%p;
+    BigInteger medium2 = (lowB*highA)%p;
+    BigInteger medium = modsum(medium1, medium2, p);
+    medium = modsum(medium, medium, p);
+    if(lowA%2 == 1){
+        medium = modsum(medium, highB, p);
     }
-    res[i] = temp & 0x3FFFFFFFu;
-    temp >>= 30;
-  }
-  // compute upper half
-  for (; i < 17; i++) {
-    for (j = i - 8; j < 9; j++) {
-      // no overflow, since 9*2^60 < 2^64
-      temp += k->val[j] * (uint64_t)x->val[i - j];
-    }
-    res[i] = temp & 0x3FFFFFFFu;
-    temp >>= 30;
-  }
-  res[17] = temp;
-}
-
-// auxiliary function for multiplication.
-// reduces res modulo prime.
-// assumes i >= 8 and i <= 16
-// assumes    res normalized, res < 2^(30(i-7)) * 2 * prime
-// guarantees res normalized, res < 2^(30(i-8)) * 2 * prime
-void bn_multiply_reduce_step(uint32_t res[18], const bignum256 *prime,
-                             uint32_t i) {
-  // let k = i-8.
-  // on entry:
-  //   0 <= res < 2^(30k + 31) * prime
-  // estimate coef = (res / prime / 2^30k)
-  // by coef = res / 2^(30k + 256)  rounded down
-  // 0 <= coef < 2^31
-  // subtract (coef * 2^(30k) * prime) from res
-  // note that we unrolled the first iteration
-  assert(i >= 8 && i <= 16);
-  uint32_t j;
-  uint32_t coef = (res[i] >> 16) + (res[i + 1] << 14);
-  uint64_t temp =
-      0x2000000000000000ull + res[i - 8] - prime->val[0] * (uint64_t)coef;
-  assert(coef < 0x80000000u);
-  res[i - 8] = temp & 0x3FFFFFFF;
-  for (j = 1; j < 9; j++) {
-    temp >>= 30;
-    // Note: coeff * prime->val[j] <= (2^31-1) * (2^30-1)
-    // Hence, this addition will not underflow.
-    temp +=
-        0x1FFFFFFF80000000ull + res[i - 8 + j] - prime->val[j] * (uint64_t)coef;
-    res[i - 8 + j] = temp & 0x3FFFFFFF;
-    // 0 <= temp < 2^61 + 2^30
-  }
-  temp >>= 30;
-  temp += 0x1FFFFFFF80000000ull + res[i - 8 + j];
-  res[i - 8 + j] = temp & 0x3FFFFFFF;
-  // we rely on the fact that prime > 2^256 - 2^224
-  //   res = oldres - coef*2^(30k) * prime;
-  // and
-  //   coef * 2^(30k + 256) <= oldres < (coef+1) * 2^(30k + 256)
-  // Hence, 0 <= res < 2^30k (2^256 + coef * (2^256 - prime))
-  //                 < 2^30k (2^256 + 2^31 * 2^224)
-  //                 < 2^30k (2 * prime)
-}
-
-// auxiliary function for multiplication.
-// reduces x = res modulo prime.
-// assumes    res normalized, res < 2^270 * 2 * prime
-// guarantees x partly reduced, i.e., x < 2 * prime
-void bn_multiply_reduce(bignum256 *x, uint32_t res[18],
-                        const bignum256 *prime) {
-  int i;
-  // res = k * x is a normalized number (every limb < 2^30)
-  // 0 <= res < 2^270 * 2 * prime.
-  for (i = 16; i >= 8; i--) {
-    bn_multiply_reduce_step(res, prime, i);
-    assert(res[i + 1] == 0);
-  }
-  // store the result
-  for (i = 0; i < 9; i++) {
-    x->val[i] = res[i];
-  }
-}
-
-// Compute x := k * x  (mod prime)
-// both inputs must be smaller than 180 * prime.
-// result is partly reduced (0 <= x < 2 * prime)
-// This only works for primes between 2^256-2^224 and 2^256.
-void bn_multiply(const bignum256 *k, bignum256 *x, const bignum256 *prime) {
-  uint32_t res[18] = {0};
-  bn_multiply_long(k, x, res);
-  bn_multiply_reduce(x, res, prime);
-  memzero(res, sizeof(res));
+    low = modsum(low, ((medium%power128)*power127)%p, p);
+    high = modsum(high, medium/power128, p);
+    high = mulmod256(high, 19, p);
+    return modsum(high, low, p);
 }
 ```
 
-Given that this algorithm uses classical long multiplication, which has a complexity of €O(n^2)€ where €n€ is the number of chunks a number is split into to do the multiplications. Given that the code provided splits 256-bit numbers into 9 chunks of 30-bits, so `bn_multiply_long` goes through 81 iterations in its loops. I personally don't understand why they use 30-bit numbers and have a weird normalization system, so following Chesterton's fence^[https://en.wikipedia.org/wiki/Wikipedia:Chesterton%27s\_fence] I should not remove that, but if we could remove that we could use chunks of 86 bits and reduce the total number of operations to €3^2=9€ and then apply the modulus, storing the intermediate result in 3 different 256-bit words.
-
 ### Modulus
-When SHA512 is computed as part of the signature verification process, a 512-bit value stored in an array of 8 unsigned longs is obtained, which we need to apply a modulus operation to. While it's possible to iterate over the binary representation and compute the modulus in 512 steps it would be great if we found a cheaper algorithm. 
+When SHA512 is computed as part of the signature verification process, a 512-bit value stored in an array of 8 unsigned longs is obtained, which we need to apply a modulus operation to. Our current solution is based on iterating over the binary representation (making sure to interpret the hash result as little-endian) and compute the modulus in 512 steps:
+```
+private static BigInteger sha512mod(ulong[] num, BigInteger q){
+	BigInteger res = 0;
+	BigInteger powers = 1;
+	for(int i=0; i<8; i++){
+		for(int j=0; j<8; j++){
+		    for(int k =0; k<8; k++){
+				if(((num[i]>>(56+k)) & 1) == 1){
+					res = modsum(res, powers, q);
+				}
+				powers = modsum(powers, powers, q);
+		    }
+		    num[i] = num[i] << 8;
+		}
+	}
+	return res;
+}
+```
 
 ## Resources
 A list of resources that are quite interesting but we still haven't explored in depth:

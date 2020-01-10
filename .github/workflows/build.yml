@@ -14,7 +14,6 @@ jobs:
         version: 11.x
     - name: Install dependencies
       run: |
-        wget https://github.com/jgm/pandoc/releases/download/2.2.1/pandoc-2.2.1-1-amd64.deb && sudo dpkg -i pandoc-2.2.1-1-amd64.deb
         sudo apt-get update -qq
         sudo apt-get install texlive-full
     - name: Install caou
